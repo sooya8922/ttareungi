@@ -20,6 +20,7 @@ Future<void> initNotifications() async {
       .resolvePlatformSpecificImplementation<
           AndroidFlutterLocalNotificationsPlugin>()
       ?.requestNotificationsPermission();
+  await _notif.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()?.requestExactAlarmsPermission();
 }
 
 Future<void> _scheduleNotif(
@@ -39,7 +40,7 @@ Future<void> _scheduleNotif(
         priority: Priority.high,
       ),
     ),
-    androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+    androidScheduleMode: AndroidScheduleMode.alarmClock,
   );
 }
 
@@ -125,6 +126,7 @@ class _TimerPageState extends State<TimerPage> {
     final before30 = deadline.subtract(const Duration(minutes: 30));
     await _scheduleNotif(1, before30, '반납 30분 전', '반납까지 30분 남았어요');
     await _scheduleNotif(2, deadline, '반납 시간', '지금 반납하세요');
+    final pend = await _notif.pendingNotificationRequests();
 
     _startTicker();
   }
