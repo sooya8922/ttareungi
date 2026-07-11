@@ -59,10 +59,19 @@
         </intent>
 
         <!-- 길찾기 앱 설치 여부 감지. Android 11+ 패키지 가시성 때문에
-             여기에 선언하지 않으면 canLaunchUrl이 항상 false를 돌려준다. -->
+             여기에 선언하지 않으면 canLaunchUrl이 항상 false를 돌려준다.
+             패키지 선언만으로는 부족하고, 커스텀 스킴은 intent로도 선언해야 한다. -->
         <package android:name="com.nhn.android.nmap"/>
         <package android:name="net.daum.android.map"/>
         <package android:name="com.google.android.apps.maps"/>
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:scheme="nmap"/>
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:scheme="kakaomap"/>
+        </intent>
         <intent>
             <action android:name="android.intent.action.VIEW"/>
             <data android:scheme="https"/>

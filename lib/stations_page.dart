@@ -36,6 +36,7 @@ class _StationsPageState extends State<StationsPage> {
   String? _error;
   List<Station> _stations = [];
   Set<String> _favorites = {};
+  Station? _selected; // 지도에서 탭한 대여소 (하단 카드로 표시)
   double _userLat = 37.5665, _userLng = 126.9780;
 
   // '반납 가능' 필터일 때는 자전거 수가 아니라 빈 거치대 수가 관심사다.
@@ -191,7 +192,10 @@ class _StationsPageState extends State<StationsPage> {
         child: ChoiceChip(
           label: Text(label),
           selected: _filter == key,
-          onSelected: (_) => setState(() => _filter = key),
+          onSelected: (_) => setState(() {
+            _filter = key;
+            _selected = null;
+          }),
         ),
       );
     }
@@ -297,13 +301,16 @@ class _StationsPageState extends State<StationsPage> {
     final n = _returnMode ? s.empty : s.bikes;
     final bg = n == 0 ? _cNone : (_returnMode ? _cEmpty : _cBike);
     final fav = _favorites.contains(s.name);
+    final sel = _selected?.name == s.name;
     return Container(
       decoration: BoxDecoration(
         color: bg,
         shape: BoxShape.circle,
         border: Border.all(
-          color: fav ? Colors.amber : Colors.white,
-          width: fav ? 3 : 2.5,
+          color: sel
+              ? Colors.black87
+              : (fav ? Colors.amber : Colors.white),
+          width: sel ? 3.5 : (fav ? 3 : 2.5),
         ),
         boxShadow: const [
           BoxShadow(color: Colors.black38, blurRadius: 4, offset: Offset(0, 2)),
@@ -321,47 +328,113 @@ class _StationsPageState extends State<StationsPage> {
     );
   }
 
-  Widget _buildMap() {
-    final list = _filtered();
-    return FlutterMap(
-      options: MapOptions(
-        initialCenter: LatLng(_userLat, _userLng),
-        initialZoom: 15,
-      ),
-      children: [
-        TileLayer(
-          urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-          userAgentPackageName: 'com.sooya8922.ttareungi',
-        ),
-        MarkerLayer(
-          markers: [
-            Marker(
-              point: LatLng(_userLat, _userLng),
-              width: 40,
-              height: 40,
-              child:
-                  const Icon(Icons.my_location, color: Colors.blue, size: 28),
-            ),
-            ...list.map((s) {
-              return Marker(
-                point: LatLng(s.lat, s.lng),
-                width: 34,
-                height: 34,
-                child: GestureDetector(
-                  onTap: () => ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content:
-                          Text('${s.name}\n🚲 ${s.bikes}대  🅿️ ${s.empty}자리'),
-                      action: SnackBarAction(
-                          label: '길찾기', onPressed: () => _navigate(s)),
-                    ),
+  // SnackBar는 하나가 떠 있으면 다음 것을 큐에 쌓아둬서, 다른 대여소를 눌러도
+  // 정보가 안 바뀌는 것처럼 보였다. 하단 카드로 교체.
+  Widget _infoCard(Station s) {
+    final fav = _favorites.contains(s.name);
+    return Card(
+      margin: const EdgeInsets.all(10),
+      elevation: 6,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(14, 10, 6, 10),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(s.name,
+                      style: const TextStyle(
+                          fontSize: 15, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      _stat(_cBike, '자전거 ${s.bikes}대'),
+                      const SizedBox(width: 10),
+                      _stat(_cEmpty, '빈 거치대 ${s.empty}자리'),
+                    ],
                   ),
-                  child: _pin(s),
-                ),
-              );
-            }),
+                  const SizedBox(height: 2),
+                  Text('${s.dist.round()}m',
+                      style: TextStyle(
+                          fontSize: 12, color: Colors.grey.shade700)),
+                ],
+              ),
+            ),
+            IconButton(
+              icon: Icon(fav ? Icons.star : Icons.star_border,
+                  color: fav ? Colors.amber : null),
+              onPressed: () => _toggleFav(s.name),
+            ),
+            IconButton(
+              icon: const Icon(Icons.directions),
+              tooltip: '길찾기',
+              onPressed: () => _navigate(s),
+            ),
+            IconButton(
+              icon: const Icon(Icons.close),
+              onPressed: () => setState(() => _selected = null),
+            ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _stat(Color c, String text) => Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _dot(c),
+          const SizedBox(width: 4),
+          Text(text, style: const TextStyle(fontSize: 13)),
+        ],
+      );
+
+  Widget _buildMap() {
+    final list = _filtered();
+    return Stack(
+      children: [
+        FlutterMap(
+          options: MapOptions(
+            initialCenter: LatLng(_userLat, _userLng),
+            initialZoom: 15,
+            onTap: (_, _) => setState(() => _selected = null),
+          ),
+          children: [
+            TileLayer(
+              urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+              userAgentPackageName: 'com.sooya8922.ttareungi',
+            ),
+            MarkerLayer(
+              markers: [
+                Marker(
+                  point: LatLng(_userLat, _userLng),
+                  width: 40,
+                  height: 40,
+                  child: const Icon(Icons.my_location,
+                      color: Colors.blue, size: 28),
+                ),
+                ...list.map((s) {
+                  return Marker(
+                    point: LatLng(s.lat, s.lng),
+                    width: 34,
+                    height: 34,
+                    child: GestureDetector(
+                      onTap: () => setState(() => _selected = s),
+                      child: _pin(s),
+                    ),
+                  );
+                }),
+              ],
+            ),
+          ],
+        ),
+        if (_selected != null)
+          Align(
+            alignment: Alignment.bottomCenter,
+            child: _infoCard(_selected!),
+          ),
       ],
     );
   }
