@@ -9,7 +9,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 const _apiKey = String.fromEnvironment('BIKE_KEY');
 
-// OSM 타일의 공원/산이 초록이라 초록 마커가 묻힌다. 자전거=파랑, 빈 거치대=주황, 없음=회색.
+// OSM 타일의 공원/산이 초록이라 초록 마커가 묻힌다. 자전거=파랑, 여유 자리=주황, 0=회색.
 const _cBike = Color(0xFF1565C0);
 const _cEmpty = Color(0xFFE65100);
 const _cNone = Color(0xFF9E9E9E);
@@ -20,7 +20,16 @@ class Station {
   final int racks, bikes;
   double dist = 0;
   Station(this.name, this.lat, this.lng, this.racks, this.bikes);
+
+  /// 남은 거치 여유. 따릉이는 QR 방식이라 거치대보다 자전거가 많은 대여소가
+  /// 전체의 40%나 된다(예: 거치대 5개에 자전거 18대). 그런 곳은 '반납 불가'가
+  /// 아니라 '포화'다 — 반납 자체는 되지만 붐빈다.
   int get empty => racks - bikes < 0 ? 0 : racks - bikes;
+
+  bool get saturated => racks > 0 && bikes >= racks;
+
+  /// 거치율(%). 100%를 넘으면 거치대보다 자전거가 많다는 뜻.
+  int get rate => racks == 0 ? 100 : (bikes * 100 / racks).round();
 }
 
 class StationsPage extends StatefulWidget {
@@ -41,10 +50,13 @@ class _StationsPageState extends State<StationsPage> {
   Station? _selected; // 지도에서 탭한 대여소 (하단 카드로 표시)
   double _userLat = 37.5665, _userLng = 126.9780;
 
-  // '반납 가능' 필터일 때는 자전거 수가 아니라 빈 거치대 수가 관심사다.
+  // '반납 여유' 필터일 때는 자전거 수가 아니라 남은 거치 여유가 관심사다.
   bool get _returnMode => _filter == 'return';
 
   bool get _ready => !_loading && _error == null && !_outOfArea;
+
+  static String _returnText(Station s) =>
+      s.saturated ? '🅿️ 포화 ${s.rate}%' : '🅿️ 여유 ${s.empty}자리';
 
   static String _distText(double m) =>
       m < 1000 ? '${m.round()}m' : '${(m / 1000).toStringAsFixed(1)}km';
@@ -235,7 +247,7 @@ class _StationsPageState extends State<StationsPage> {
         children: [
           chip('all', '전체'),
           chip('rent', '빌릴 수 있음'),
-          chip('return', '반납 가능'),
+          chip('return', '반납 여유'),
           chip('fav', '⭐ 즐겨찾기'),
         ],
       ),
@@ -246,12 +258,12 @@ class _StationsPageState extends State<StationsPage> {
     final items = _splitPin
         ? [
             (_cBike, '위 = 자전거 수'),
-            (_cEmpty, '아래 = 빈 거치대'),
+            (_cEmpty, '아래 = 여유 자리'),
             (_cNone, '0'),
           ]
         : [
             (_returnMode ? _cEmpty : _cBike,
-                _returnMode ? '빈 거치대 수' : '자전거 수'),
+                _returnMode ? '여유 자리 수' : '자전거 수'),
             (_cNone, '없음'),
           ];
     return Container(
@@ -338,7 +350,7 @@ class _StationsPageState extends State<StationsPage> {
         return ListTile(
           title: Text(s.name),
           subtitle: Text(
-              '🚲 ${s.bikes}대   🅿️ ${s.empty}자리   ·   ${_distText(s.dist)}'),
+              '🚲 ${s.bikes}대   ${_returnText(s)}   ·   ${_distText(s.dist)}'),
           trailing: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -442,7 +454,8 @@ class _StationsPageState extends State<StationsPage> {
                     children: [
                       _stat(_cBike, '자전거 ${s.bikes}대'),
                       const SizedBox(width: 10),
-                      _stat(_cEmpty, '빈 거치대 ${s.empty}자리'),
+                      _stat(_cEmpty,
+                          s.saturated ? '포화 ${s.rate}%' : '여유 ${s.empty}자리'),
                     ],
                   ),
                   const SizedBox(height: 2),
