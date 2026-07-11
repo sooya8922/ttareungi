@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/data/latest.dart' as tzdata;
 import 'package:timezone/timezone.dart' as tz;
+import 'stations_page.dart';
 
 final FlutterLocalNotificationsPlugin _notif =
     FlutterLocalNotificationsPlugin();
@@ -126,7 +127,6 @@ class _TimerPageState extends State<TimerPage> {
     final before30 = deadline.subtract(const Duration(minutes: 30));
     await _scheduleNotif(1, before30, '반납 30분 전', '반납까지 30분 남았어요');
     await _scheduleNotif(2, deadline, '반납 시간', '지금 반납하세요');
-    final pend = await _notif.pendingNotificationRequests();
 
     _startTicker();
   }
@@ -167,6 +167,16 @@ class _TimerPageState extends State<TimerPage> {
       appBar: AppBar(
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         title: const Text('따릉이 타이머'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.pedal_bike),
+            tooltip: '내 주변 대여소',
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const StationsPage()),
+            ),
+          ),
+        ],
       ),
       body: Center(
         child: _startTime == null ? _idleView() : _rentingView(),
@@ -194,11 +204,6 @@ class _TimerPageState extends State<TimerPage> {
             padding: EdgeInsets.symmetric(horizontal: 32, vertical: 14),
             child: Text('2시간권 대여 시작', style: TextStyle(fontSize: 18)),
           ),
-        ),
-        const SizedBox(height: 12),
-        TextButton(
-          onPressed: () => _startRental(const Duration(seconds: 20)),
-          child: const Text('(테스트) 20초권'),
         ),
       ],
     );
