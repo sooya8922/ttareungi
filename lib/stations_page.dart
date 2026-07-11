@@ -215,21 +215,29 @@ class _StationsPageState extends State<StationsPage> {
   }
 
   Widget _legend() {
-    final dot = _returnMode ? _cEmpty : _cBike;
-    final label = _returnMode ? '숫자 = 빈 거치대 수' : '숫자 = 자전거 수';
+    final items = _splitPin
+        ? [
+            (_cBike, '위 = 자전거 수'),
+            (_cEmpty, '아래 = 빈 거치대'),
+            (_cNone, '0'),
+          ]
+        : [
+            (_returnMode ? _cEmpty : _cBike,
+                _returnMode ? '빈 거치대 수' : '자전거 수'),
+            (_cNone, '없음'),
+          ];
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
       color: Colors.black.withValues(alpha: 0.04),
       child: Row(
         children: [
-          _dot(dot),
-          const SizedBox(width: 6),
-          Text(label, style: const TextStyle(fontSize: 12)),
-          const SizedBox(width: 16),
-          _dot(_cNone),
-          const SizedBox(width: 6),
-          const Text('없음', style: TextStyle(fontSize: 12)),
+          for (final (c, label) in items) ...[
+            _dot(c),
+            const SizedBox(width: 5),
+            Text(label, style: const TextStyle(fontSize: 12)),
+            const SizedBox(width: 14),
+          ],
         ],
       ),
     );
@@ -297,33 +305,62 @@ class _StationsPageState extends State<StationsPage> {
     );
   }
 
-  Widget _pin(Station s) {
-    final n = _returnMode ? s.empty : s.bikes;
-    final bg = n == 0 ? _cNone : (_returnMode ? _cEmpty : _cBike);
+  // '빌릴 수 있음'/'반납 가능' 필터는 관심 숫자가 하나뿐이라 단색 원.
+  // '전체'/'즐겨찾기'는 자전거 수와 빈 거치대 수를 둘 다 알아야 하므로 위아래 2단.
+  bool get _splitPin => _filter == 'all' || _filter == 'fav';
+
+  static const _numStyle = TextStyle(
+    color: Colors.white,
+    fontWeight: FontWeight.bold,
+    fontSize: 12,
+  );
+
+  BoxBorder _pinBorder(Station s) {
     final fav = _favorites.contains(s.name);
     final sel = _selected?.name == s.name;
+    return Border.all(
+      color: sel ? Colors.black87 : (fav ? Colors.amber : Colors.white),
+      width: sel ? 3 : (fav ? 2.5 : 2),
+    );
+  }
+
+  static const _pinShadow = [
+    BoxShadow(color: Colors.black38, blurRadius: 4, offset: Offset(0, 2)),
+  ];
+
+  Widget _half(int n, Color on) => Container(
+        color: n == 0 ? _cNone : on,
+        alignment: Alignment.center,
+        child: Text('$n', style: _numStyle),
+      );
+
+  Widget _pin(Station s) {
+    if (!_splitPin) {
+      final n = _returnMode ? s.empty : s.bikes;
+      final bg = n == 0 ? _cNone : (_returnMode ? _cEmpty : _cBike);
+      return Container(
+        decoration: BoxDecoration(
+          color: bg,
+          shape: BoxShape.circle,
+          border: _pinBorder(s),
+          boxShadow: _pinShadow,
+        ),
+        alignment: Alignment.center,
+        child: Text('${_returnMode ? s.empty : s.bikes}', style: _numStyle),
+      );
+    }
     return Container(
       decoration: BoxDecoration(
-        color: bg,
-        shape: BoxShape.circle,
-        border: Border.all(
-          color: sel
-              ? Colors.black87
-              : (fav ? Colors.amber : Colors.white),
-          width: sel ? 3.5 : (fav ? 3 : 2.5),
-        ),
-        boxShadow: const [
-          BoxShadow(color: Colors.black38, blurRadius: 4, offset: Offset(0, 2)),
-        ],
+        borderRadius: BorderRadius.circular(9),
+        border: _pinBorder(s),
+        boxShadow: _pinShadow,
       ),
-      alignment: Alignment.center,
-      child: Text(
-        '$n',
-        style: const TextStyle(
-          color: Colors.white,
-          fontWeight: FontWeight.bold,
-          fontSize: 13,
-        ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        children: [
+          Expanded(child: _half(s.bikes, _cBike)),
+          Expanded(child: _half(s.empty, _cEmpty)),
+        ],
       ),
     );
   }
@@ -418,8 +455,8 @@ class _StationsPageState extends State<StationsPage> {
                 ...list.map((s) {
                   return Marker(
                     point: LatLng(s.lat, s.lng),
-                    width: 34,
-                    height: 34,
+                    width: _splitPin ? 32 : 34,
+                    height: _splitPin ? 42 : 34,
                     child: GestureDetector(
                       onTap: () => setState(() => _selected = s),
                       child: _pin(s),
@@ -433,7 +470,9 @@ class _StationsPageState extends State<StationsPage> {
         if (_selected != null)
           Align(
             alignment: Alignment.bottomCenter,
-            child: _infoCard(_selected!),
+            // Android 15부터 화면이 내비게이션 바 아래까지 확장돼서, SafeArea가 없으면
+            // 카드가 '뒤로가기/홈' 바에 가린다.
+            child: SafeArea(child: _infoCard(_selected!)),
           ),
       ],
     );

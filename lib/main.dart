@@ -202,12 +202,15 @@ class _TimerPageState extends State<TimerPage> {
         const SizedBox(height: 8),
         Wrap(
           spacing: 8,
+          runSpacing: 8,
           alignment: WrapAlignment.center,
           children: [
             chip(0, '지금'),
             chip(5, '5분 전'),
             chip(10, '10분 전'),
             chip(15, '15분 전'),
+            chip(20, '20분 전'),
+            chip(30, '30분 전'),
           ],
         ),
         if (_startedAgoMin > 0)
