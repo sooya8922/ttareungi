@@ -34,6 +34,8 @@ class _StationsPageState extends State<StationsPage> {
   bool _showMap = false;
   String _filter = 'all';
   String? _error;
+  bool _needsSettings = false; // 위치 권한 영구 거부 → 앱 설정으로 보내야 함
+  bool _outOfArea = false; // 서울 밖. 따릉이는 서울시 전용 서비스.
   List<Station> _stations = [];
   Set<String> _favorites = {};
   Station? _selected; // 지도에서 탭한 대여소 (하단 카드로 표시)
@@ -41,6 +43,11 @@ class _StationsPageState extends State<StationsPage> {
 
   // '반납 가능' 필터일 때는 자전거 수가 아니라 빈 거치대 수가 관심사다.
   bool get _returnMode => _filter == 'return';
+
+  bool get _ready => !_loading && _error == null && !_outOfArea;
+
+  static String _distText(double m) =>
+      m < 1000 ? '${m.round()}m' : '${(m / 1000).toStringAsFixed(1)}km';
 
   @override
   void initState() {
@@ -65,10 +72,16 @@ class _StationsPageState extends State<StationsPage> {
     }).toList();
   }
 
+  // 가장 가까운 대여소가 이보다 멀면 서울권 밖으로 본다(서울 대각 폭이 대략 30km).
+  static const _kOutOfAreaMeters = 30000.0;
+
   Future<void> _load() async {
     setState(() {
       _loading = true;
       _error = null;
+      _needsSettings = false;
+      _outOfArea = false;
+      _selected = null;
     });
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -78,9 +91,16 @@ class _StationsPageState extends State<StationsPage> {
       if (perm == LocationPermission.denied) {
         perm = await Geolocator.requestPermission();
       }
-      if (perm == LocationPermission.denied ||
-          perm == LocationPermission.deniedForever) {
-        throw '위치 권한이 필요해요';
+      if (perm == LocationPermission.deniedForever) {
+        setState(() {
+          _needsSettings = true;
+          _error = '위치 권한이 꺼져 있어요.\n설정에서 허용해 주세요.';
+          _loading = false;
+        });
+        return;
+      }
+      if (perm == LocationPermission.denied) {
+        throw '내 주변 대여소를 찾으려면 위치 권한이 필요해요';
       }
       final pos = await Geolocator.getCurrentPosition();
       _userLat = pos.latitude;
@@ -96,6 +116,14 @@ class _StationsPageState extends State<StationsPage> {
             Geolocator.distanceBetween(_userLat, _userLng, st.lat, st.lng);
       }
       all.sort((a, b) => a.dist.compareTo(b.dist));
+
+      if (all.isEmpty || all.first.dist > _kOutOfAreaMeters) {
+        setState(() {
+          _outOfArea = true;
+          _loading = false;
+        });
+        return;
+      }
 
       setState(() {
         _stations = all.take(40).toList();
@@ -177,8 +205,8 @@ class _StationsPageState extends State<StationsPage> {
       ),
       body: Column(
         children: [
-          _filterBar(),
-          if (_showMap && !_loading && _error == null) _legend(),
+          if (_ready) _filterBar(),
+          if (_ready && _showMap) _legend(),
           Expanded(child: _buildBody()),
         ],
       ),
@@ -253,21 +281,46 @@ class _StationsPageState extends State<StationsPage> {
         ),
       );
 
+  Widget _notice(IconData icon, String text, List<Widget> actions) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, size: 56, color: Colors.grey.shade500),
+            const SizedBox(height: 16),
+            Text(text,
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 16)),
+            const SizedBox(height: 20),
+            Wrap(spacing: 10, children: actions),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildBody() {
     if (_loading) {
       return const Center(child: CircularProgressIndicator());
     }
-    if (_error != null) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text(_error!),
-            const SizedBox(height: 12),
-            FilledButton(onPressed: _load, child: const Text('다시 시도')),
-          ],
-        ),
+    if (_outOfArea) {
+      return _notice(
+        Icons.location_off,
+        '주변에 따릉이 대여소가 없어요.\n\n따릉이는 서울시에서만 운영해요.\n서울에서 다시 시도해 주세요.',
+        [FilledButton(onPressed: _load, child: const Text('다시 시도'))],
       );
+    }
+    if (_error != null) {
+      return _notice(Icons.error_outline, _error!, [
+        if (_needsSettings)
+          FilledButton(
+            onPressed: Geolocator.openAppSettings,
+            child: const Text('설정 열기'),
+          ),
+        OutlinedButton(onPressed: _load, child: const Text('다시 시도')),
+      ]);
     }
     return _showMap ? _buildMap() : _buildList();
   }
@@ -285,7 +338,7 @@ class _StationsPageState extends State<StationsPage> {
         return ListTile(
           title: Text(s.name),
           subtitle: Text(
-              '🚲 ${s.bikes}대   🅿️ ${s.empty}자리   ·   ${s.dist.round()}m'),
+              '🚲 ${s.bikes}대   🅿️ ${s.empty}자리   ·   ${_distText(s.dist)}'),
           trailing: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -393,7 +446,7 @@ class _StationsPageState extends State<StationsPage> {
                     ],
                   ),
                   const SizedBox(height: 2),
-                  Text('${s.dist.round()}m',
+                  Text(_distText(s.dist),
                       style: TextStyle(
                           fontSize: 12, color: Colors.grey.shade700)),
                 ],
