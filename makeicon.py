@@ -40,12 +40,15 @@ def draw_bike(img, scale, stroke):
     d.line([t((688, 378)), t((722, 408))], fill=WHITE, width=stroke)   # 핸들 그립
 
 
+# 일반 아이콘은 잘리지 않으니 여백을 거의 없앤다.
 icon = Image.new('RGB', (W, W), GREEN)
-draw_bike(icon, scale=1.12, stroke=54)
+draw_bike(icon, scale=1.20, stroke=62)
 icon.save('assets/icon/icon.png')
 
+# 적응형 전경은 가운데 원(지름 66%) 밖이 잘린다. scale 0.90이면 바퀴 바깥이
+# 중심에서 32.7% 지점 → 안전선(33.3%) 안쪽 한계치.
 fg = Image.new('RGBA', (W, W), (0, 0, 0, 0))
-draw_bike(fg, scale=0.86, stroke=46)
+draw_bike(fg, scale=0.90, stroke=56)
 fg.save('assets/icon/icon_fg.png')
 
 open('flutter_launcher_icons.yaml', 'w').write('''flutter_launcher_icons:

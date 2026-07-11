@@ -83,8 +83,18 @@ class _TimerPageState extends State<TimerPage> {
   // 자전거를 빌린 뒤 앱을 늦게 켜면 타이머가 그만큼 어긋난다. 대여 시각을 소급 보정.
   int _startedAgoMin = 0;
 
+  String _notifMode = 'std';
+
   static const _kStart = 'start_ms';
   static const _kLimit = 'limit_sec';
+  static const _kNotifMode = 'notif_mode';
+
+  // 반납 몇 분 전에 울릴지. 0 = 반납 시각 정각.
+  static const _notifPlans = <String, List<int>>{
+    'std': [30, 0],
+    'often': [30, 20, 10, 0],
+    'end': [0],
+  };
 
   @override
   void initState() {
@@ -94,6 +104,7 @@ class _TimerPageState extends State<TimerPage> {
 
   Future<void> _restore() async {
     final prefs = await SharedPreferences.getInstance();
+    setState(() => _notifMode = prefs.getString(_kNotifMode) ?? 'std');
     final startMs = prefs.getInt(_kStart);
     final limitSec = prefs.getInt(_kLimit);
     if (startMs != null && limitSec != null) {
@@ -128,11 +139,24 @@ class _TimerPageState extends State<TimerPage> {
     await prefs.setInt(_kLimit, limit.inSeconds);
 
     await _notif.cancelAll();
-    final before30 = deadline.subtract(const Duration(minutes: 30));
-    await _scheduleNotif(1, before30, '반납 30분 전', '반납까지 30분 남았어요');
-    await _scheduleNotif(2, deadline, '반납 시간', '지금 반납하세요');
+    final plan = _notifPlans[_notifMode] ?? _notifPlans['std']!;
+    for (var i = 0; i < plan.length; i++) {
+      final m = plan[i];
+      await _scheduleNotif(
+        i + 1,
+        deadline.subtract(Duration(minutes: m)),
+        m == 0 ? '반납 시간' : '반납 $m분 전',
+        m == 0 ? '지금 반납하세요' : '반납까지 $m분 남았어요',
+      );
+    }
 
     _startTicker();
+  }
+
+  Future<void> _setNotifMode(String mode) async {
+    setState(() => _notifMode = mode);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_kNotifMode, mode);
   }
 
   Future<void> _returnBike() async {
@@ -183,8 +207,14 @@ class _TimerPageState extends State<TimerPage> {
           ),
         ],
       ),
-      body: Center(
-        child: _startTime == null ? _idleView() : _rentingView(),
+      body: SafeArea(
+        child: Center(
+          // 설정 칩이 늘어나 작은 화면에서 넘칠 수 있어 스크롤 가능하게.
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+            child: _startTime == null ? _idleView() : _rentingView(),
+          ),
+        ),
       ),
     );
   }
@@ -225,11 +255,38 @@ class _TimerPageState extends State<TimerPage> {
     );
   }
 
+  Widget _notifChips() {
+    Widget chip(String mode, String label) => ChoiceChip(
+          label: Text(label),
+          selected: _notifMode == mode,
+          onSelected: (_) => _setNotifMode(mode),
+        );
+
+    return Column(
+      children: [
+        const Text('반납 알림', style: TextStyle(fontSize: 14)),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          alignment: WrapAlignment.center,
+          children: [
+            chip('std', '30분 전 + 정각'),
+            chip('often', '30분 전부터 10분 간격'),
+            chip('end', '정각만'),
+          ],
+        ),
+      ],
+    );
+  }
+
   Widget _idleView() {
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
         _agoChips(),
+        const SizedBox(height: 20),
+        _notifChips(),
         const SizedBox(height: 28),
         const Text('이용권을 선택하세요', style: TextStyle(fontSize: 20)),
         const SizedBox(height: 24),
