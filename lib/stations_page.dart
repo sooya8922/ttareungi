@@ -9,6 +9,11 @@ import 'package:url_launcher/url_launcher.dart';
 
 const _apiKey = String.fromEnvironment('BIKE_KEY');
 
+// OSM 타일의 공원/산이 초록이라 초록 마커가 묻힌다. 자전거=파랑, 빈 거치대=주황, 없음=회색.
+const _cBike = Color(0xFF1565C0);
+const _cEmpty = Color(0xFFE65100);
+const _cNone = Color(0xFF9E9E9E);
+
 class Station {
   final String name;
   final double lat, lng;
@@ -32,6 +37,9 @@ class _StationsPageState extends State<StationsPage> {
   List<Station> _stations = [];
   Set<String> _favorites = {};
   double _userLat = 37.5665, _userLng = 126.9780;
+
+  // '반납 가능' 필터일 때는 자전거 수가 아니라 빈 거치대 수가 관심사다.
+  bool get _returnMode => _filter == 'return';
 
   @override
   void initState() {
@@ -124,10 +132,31 @@ class _StationsPageState extends State<StationsPage> {
     await prefs.setStringList('fav_stations', _favorites.toList());
   }
 
+  // 네이버지도 → 카카오맵 → 구글맵 순으로 시도. 설치 여부 감지는 AndroidManifest의
+  // <queries> 패키지 선언이 있어야 동작한다(Android 11+ 패키지 가시성).
   Future<void> _navigate(Station s) async {
-    final uri = Uri.parse(
-        'geo:${s.lat},${s.lng}?q=${s.lat},${s.lng}(${Uri.encodeComponent(s.name)})');
-    await launchUrl(uri, mode: LaunchMode.externalApplication);
+    final name = Uri.encodeComponent(s.name);
+    final candidates = <Uri>[
+      Uri.parse('nmap://route/walk?dlat=${s.lat}&dlng=${s.lng}'
+          '&dname=$name&appname=com.sooya8922.ttareungi'),
+      Uri.parse('kakaomap://route?ep=${s.lat},${s.lng}&by=FOOT'),
+      Uri.parse('https://www.google.com/maps/dir/?api=1'
+          '&destination=${s.lat},${s.lng}&travelmode=walking'),
+    ];
+    for (final uri in candidates) {
+      try {
+        if (await canLaunchUrl(uri) &&
+            await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+          return;
+        }
+      } catch (_) {
+        // 다음 후보로
+      }
+    }
+    await launchUrl(
+      Uri.parse('geo:${s.lat},${s.lng}?q=${s.lat},${s.lng}($name)'),
+      mode: LaunchMode.externalApplication,
+    );
   }
 
   @override
@@ -148,6 +177,7 @@ class _StationsPageState extends State<StationsPage> {
       body: Column(
         children: [
           _filterBar(),
+          if (_showMap && !_loading && _error == null) _legend(),
           Expanded(child: _buildBody()),
         ],
       ),
@@ -179,6 +209,37 @@ class _StationsPageState extends State<StationsPage> {
       ),
     );
   }
+
+  Widget _legend() {
+    final dot = _returnMode ? _cEmpty : _cBike;
+    final label = _returnMode ? '숫자 = 빈 거치대 수' : '숫자 = 자전거 수';
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+      color: Colors.black.withValues(alpha: 0.04),
+      child: Row(
+        children: [
+          _dot(dot),
+          const SizedBox(width: 6),
+          Text(label, style: const TextStyle(fontSize: 12)),
+          const SizedBox(width: 16),
+          _dot(_cNone),
+          const SizedBox(width: 6),
+          const Text('없음', style: TextStyle(fontSize: 12)),
+        ],
+      ),
+    );
+  }
+
+  Widget _dot(Color c) => Container(
+        width: 12,
+        height: 12,
+        decoration: BoxDecoration(
+          color: c,
+          shape: BoxShape.circle,
+          border: Border.all(color: Colors.white, width: 1.5),
+        ),
+      );
 
   Widget _buildBody() {
     if (_loading) {
@@ -232,6 +293,34 @@ class _StationsPageState extends State<StationsPage> {
     );
   }
 
+  Widget _pin(Station s) {
+    final n = _returnMode ? s.empty : s.bikes;
+    final bg = n == 0 ? _cNone : (_returnMode ? _cEmpty : _cBike);
+    final fav = _favorites.contains(s.name);
+    return Container(
+      decoration: BoxDecoration(
+        color: bg,
+        shape: BoxShape.circle,
+        border: Border.all(
+          color: fav ? Colors.amber : Colors.white,
+          width: fav ? 3 : 2.5,
+        ),
+        boxShadow: const [
+          BoxShadow(color: Colors.black38, blurRadius: 4, offset: Offset(0, 2)),
+        ],
+      ),
+      alignment: Alignment.center,
+      child: Text(
+        '$n',
+        style: const TextStyle(
+          color: Colors.white,
+          fontWeight: FontWeight.bold,
+          fontSize: 13,
+        ),
+      ),
+    );
+  }
+
   Widget _buildMap() {
     final list = _filtered();
     return FlutterMap(
@@ -242,7 +331,7 @@ class _StationsPageState extends State<StationsPage> {
       children: [
         TileLayer(
           urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-          userAgentPackageName: 'com.example.ttareungi',
+          userAgentPackageName: 'com.sooya8922.ttareungi',
         ),
         MarkerLayer(
           markers: [
@@ -256,8 +345,8 @@ class _StationsPageState extends State<StationsPage> {
             ...list.map((s) {
               return Marker(
                 point: LatLng(s.lat, s.lng),
-                width: 40,
-                height: 40,
+                width: 34,
+                height: 34,
                 child: GestureDetector(
                   onTap: () => ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
@@ -267,11 +356,7 @@ class _StationsPageState extends State<StationsPage> {
                           label: '길찾기', onPressed: () => _navigate(s)),
                     ),
                   ),
-                  child: Icon(
-                    Icons.pedal_bike,
-                    color: s.bikes > 0 ? Colors.green : Colors.red,
-                    size: 28,
-                  ),
+                  child: _pin(s),
                 ),
               );
             }),

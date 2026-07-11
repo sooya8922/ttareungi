@@ -1,54 +1,53 @@
-import java.util.Properties
-import java.io.FileInputStream
-
 plugins {
     id("com.android.application")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
 }
 
-val keystoreProperties = Properties()
-val keystorePropertiesFile = rootProject.file("key.properties")
-if (keystorePropertiesFile.exists()) {
-    keystoreProperties.load(FileInputStream(keystorePropertiesFile))
-}
+// 고정 업로드 키. CI가 KEYSTORE_PATH/KEYSTORE_PASSWORD 환경변수로 주입한다.
+// 같은 키로 서명해야 폰에서 덮어쓰기 업데이트가 되고, Play 업로드 키와도 일치한다.
+val ciKeystorePath: String? = System.getenv("KEYSTORE_PATH")
 
 android {
-
-    signingConfigs {
-        create("release") {
-            keyAlias = keystoreProperties["keyAlias"] as String?
-            keyPassword = keystoreProperties["keyPassword"] as String?
-            storeFile = keystoreProperties["storeFile"]?.let { file(it) }
-            storePassword = keystoreProperties["storePassword"] as String?
-        }
-    }
     namespace = "com.example.ttareungi"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
+        // flutter_local_notifications가 java.time을 써서 데스가링 필수
         isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId = "com.sooya8922.ttareungi"
-        // You can update the following values to match your application needs.
-        // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = 24
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        if (ciKeystorePath != null) {
+            create("upload") {
+                storeFile = file(ciKeystorePath)
+                storePassword = System.getenv("KEYSTORE_PASSWORD")
+                keyAlias = "upload"
+                keyPassword = System.getenv("KEYSTORE_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("release")
+            // CI: 고정 upload 키 / 로컬(키 없음): debug 키 폴백
+            signingConfig = if (ciKeystorePath != null) signingConfigs.getByName("upload")
+                            else signingConfigs.getByName("debug")
+            // R8이 flutter_local_notifications 내부(GSON TypeToken)를 지워 시작 크래시를
+            // 내는 알려진 문제가 있어 축소는 끈다.
+            isMinifyEnabled = false
+            isShrinkResources = false
         }
     }
 }

@@ -1,0 +1,74 @@
+name: release-apk
+
+# main에 앱 코드가 push되면 APK/AAB를 빌드해서 GitHub Release에 첨부한다.
+# 폰에서는 릴리스 페이지를 열어 APK를 탭 한 번으로 설치. (회사 PC에 Android SDK가 없어 로컬 빌드 불가)
+on:
+  push:
+    branches: [main]
+    paths:
+      - "lib/**"
+      - "android/**"
+      - "assets/**"
+      - "pubspec.yaml"
+      - ".github/workflows/release.yml"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.44.4"
+          channel: stable
+          cache: true
+
+      - name: Deps
+        run: flutter pub get
+
+      - name: Analyze
+        run: flutter analyze
+
+      - name: Restore signing keystore (고정 업로드키 — 덮어쓰기 설치 호환)
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        run: echo "$KEYSTORE_BASE64" | base64 -d > /tmp/upload-keystore.jks
+
+      - name: Build APK + AAB
+        env:
+          KEYSTORE_PATH: /tmp/upload-keystore.jks
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          BIKE_KEY: ${{ secrets.BIKE_KEY }}
+        run: |
+          V="1.0.${{ github.run_number }}"
+          echo "V=$V" >> "$GITHUB_ENV"
+          flutter build apk --release \
+            --dart-define=BIKE_KEY="$BIKE_KEY" \
+            --build-name="$V" --build-number="${{ github.run_number }}"
+          flutter build appbundle --release \
+            --dart-define=BIKE_KEY="$BIKE_KEY" \
+            --build-name="$V" --build-number="${{ github.run_number }}"
+          mv build/app/outputs/flutter-apk/app-release.apk "ttareungi-$V.apk"
+          mv build/app/outputs/bundle/release/app-release.aab "ttareungi-$V.aab"
+
+      - name: Verify signature (고정키 CN 확인 — 임시 debug키로 새면 여기서 실패)
+        run: |
+          APKSIGNER=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | tail -1)
+          "$APKSIGNER" verify --print-certs "ttareungi-$V.apk" | grep -q "CN=ttareungi"
+          echo "✅ 고정 업로드키 서명 확인"
+
+      - name: Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "v$V" "ttareungi-$V.apk" "ttareungi-$V.aab" \
+            --title "따릉이 도우미 v$V" \
+            --notes "$(git log -1 --pretty=%s)
+
+          **폰 설치:** 아래 \`ttareungi-$V.apk\` 를 폰 브라우저로 눌러 받으세요.
+          \`ttareungi-$V.aab\` 는 Play Console 업로드용입니다."

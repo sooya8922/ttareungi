@@ -57,7 +57,7 @@ class TtareungiApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: '따릉이 타이머',
+      title: '따릉이 도우미',
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.green),
         useMaterial3: true,
@@ -79,6 +79,9 @@ class _TimerPageState extends State<TimerPage> {
   Duration _limit = Duration.zero;
   Timer? _ticker;
   Duration _remaining = Duration.zero;
+
+  // 자전거를 빌린 뒤 앱을 늦게 켜면 타이머가 그만큼 어긋난다. 대여 시각을 소급 보정.
+  int _startedAgoMin = 0;
 
   static const _kStart = 'start_ms';
   static const _kLimit = 'limit_sec';
@@ -112,15 +115,16 @@ class _TimerPageState extends State<TimerPage> {
   }
 
   Future<void> _startRental(Duration limit) async {
-    final now = DateTime.now();
-    final deadline = now.add(limit);
+    final start =
+        DateTime.now().subtract(Duration(minutes: _startedAgoMin));
+    final deadline = start.add(limit);
     setState(() {
-      _startTime = now;
+      _startTime = start;
       _limit = limit;
     });
 
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setInt(_kStart, now.millisecondsSinceEpoch);
+    await prefs.setInt(_kStart, start.millisecondsSinceEpoch);
     await prefs.setInt(_kLimit, limit.inSeconds);
 
     await _notif.cancelAll();
@@ -141,6 +145,7 @@ class _TimerPageState extends State<TimerPage> {
     await prefs.remove(_kStart);
     await prefs.remove(_kLimit);
     await _notif.cancelAll();
+    setState(() => _startedAgoMin = 0);
   }
 
   @override
@@ -166,7 +171,7 @@ class _TimerPageState extends State<TimerPage> {
     return Scaffold(
       appBar: AppBar(
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        title: const Text('따릉이 타이머'),
+        title: const Text('따릉이 도우미'),
         actions: [
           IconButton(
             icon: const Icon(Icons.pedal_bike),
@@ -184,10 +189,45 @@ class _TimerPageState extends State<TimerPage> {
     );
   }
 
+  Widget _agoChips() {
+    Widget chip(int min, String label) => ChoiceChip(
+          label: Text(label),
+          selected: _startedAgoMin == min,
+          onSelected: (_) => setState(() => _startedAgoMin = min),
+        );
+
+    return Column(
+      children: [
+        const Text('언제 빌렸나요?', style: TextStyle(fontSize: 14)),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          alignment: WrapAlignment.center,
+          children: [
+            chip(0, '지금'),
+            chip(5, '5분 전'),
+            chip(10, '10분 전'),
+            chip(15, '15분 전'),
+          ],
+        ),
+        if (_startedAgoMin > 0)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Text(
+              '대여 시각을 ${_clock(DateTime.now().subtract(Duration(minutes: _startedAgoMin)))}로 계산해요',
+              style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
+            ),
+          ),
+      ],
+    );
+  }
+
   Widget _idleView() {
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
+        _agoChips(),
+        const SizedBox(height: 28),
         const Text('이용권을 선택하세요', style: TextStyle(fontSize: 20)),
         const SizedBox(height: 24),
         FilledButton(
