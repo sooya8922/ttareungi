@@ -55,8 +55,9 @@ class _StationsPageState extends State<StationsPage> {
 
   bool get _ready => !_loading && _error == null && !_outOfArea;
 
+  // '포화 360%'는 반납이 되는지 안 되는지가 안 읽힌다. '가능'을 직접 쓴다.
   static String _returnText(Station s) =>
-      s.saturated ? '🅿️ 포화 ${s.rate}%' : '🅿️ 여유 ${s.empty}자리';
+      s.saturated ? '🅿️ 반납 가능 · 붐빔' : '🅿️ 여유 ${s.empty}자리';
 
   static String _distText(double m) =>
       m < 1000 ? '${m.round()}m' : '${(m / 1000).toStringAsFixed(1)}km';
@@ -200,6 +201,33 @@ class _StationsPageState extends State<StationsPage> {
     );
   }
 
+  void _showHelp() {
+    showDialog<void>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('숫자 읽는 법'),
+        content: const Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('🔵 파랑 — 지금 빌릴 수 있는 자전거 수'),
+            SizedBox(height: 8),
+            Text('🟠 주황 — 거치대에 남은 여유 자리'),
+            SizedBox(height: 16),
+            Text('따릉이는 거치대가 꽉 차도 반납할 수 있어요. '
+                '여유가 0인 곳은 반납이 안 되는 게 아니라 붐비는 것뿐입니다.'),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('알겠어요'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -207,6 +235,11 @@ class _StationsPageState extends State<StationsPage> {
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         title: const Text('내 주변 따릉이'),
         actions: [
+          IconButton(
+            onPressed: _showHelp,
+            icon: const Icon(Icons.help_outline),
+            tooltip: '숫자 읽는 법',
+          ),
           IconButton(
             onPressed: () => setState(() => _showMap = !_showMap),
             icon: Icon(_showMap ? Icons.list : Icons.map),
@@ -258,9 +291,8 @@ class _StationsPageState extends State<StationsPage> {
     final items = _splitPin
         ? [
             (_cBike, '위 = 자전거 수'),
-            (_cEmpty, '아래 = 여유 자리'),
-            (_cNone, '0'),
-          ]
+            (_cEmpty, '아래 = 여유 자리 (0이어도 반납 가능)'),
+            ]
         : [
             (_returnMode ? _cEmpty : _cBike,
                 _returnMode ? '여유 자리 수' : '자전거 수'),
@@ -455,7 +487,9 @@ class _StationsPageState extends State<StationsPage> {
                       _stat(_cBike, '자전거 ${s.bikes}대'),
                       const SizedBox(width: 10),
                       _stat(_cEmpty,
-                          s.saturated ? '포화 ${s.rate}%' : '여유 ${s.empty}자리'),
+                          s.saturated
+                              ? '반납 가능 · 붐빔'
+                              : '여유 ${s.empty}자리'),
                     ],
                   ),
                   const SizedBox(height: 2),
